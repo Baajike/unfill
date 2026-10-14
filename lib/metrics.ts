@@ -3,6 +3,16 @@ import type { Metrics, RepeatedWord, TimedSegment, TimedWord } from "./types";
 
 export const LONG_PAUSE_SECONDS = 2;
 
+/**
+ * Below this pace the transcript is too thin to judge (often a capture problem,
+ * not the speaker), so the session isn't scored, compared or counted for level-up.
+ */
+export const MIN_SCORABLE_WPM = 60;
+
+export function isTooShortToScore(metrics: Pick<Metrics, "words_per_minute">): boolean {
+  return metrics.words_per_minute < MIN_SCORABLE_WPM;
+}
+
 // Deliberately small: enough to keep "the", "and", "is" out of vocabulary stats.
 const STOPWORDS = new Set([
   "a", "an", "the", "and", "or", "but", "if", "then", "than", "of", "to", "in",

@@ -12,6 +12,7 @@ const good = (target: number): LevelSession => ({
   target_seconds: target,
   completed: true,
   fillers_per_minute: 3,
+  words_per_minute: 120,
 });
 
 describe("ladder", () => {
@@ -73,7 +74,18 @@ describe("nextLevel", () => {
   });
 
   it("never levels down", () => {
-    const bad = { target_seconds: 120, completed: false, fillers_per_minute: 20 };
+    const bad = { target_seconds: 120, completed: false, fillers_per_minute: 20, words_per_minute: 30 };
     expect(nextLevel(2, [bad, bad, bad])).toBe(2);
+  });
+
+  it("does not count sessions that are too short to score", () => {
+    const thin = { ...good(60), fillers_per_minute: 0, words_per_minute: 12 };
+    expect(nextLevel(1, [good(60), thin, good(60)])).toBe(1);
+    expect(nextLevel(1, [thin, thin, thin])).toBe(1);
+  });
+
+  it("treats exactly 60 words per minute as scorable", () => {
+    expect(nextLevel(1, [1, 2, 3].map(() => ({ ...good(60), words_per_minute: 60 })))).toBe(2);
+    expect(nextLevel(1, [1, 2, 3].map(() => ({ ...good(60), words_per_minute: 59.9 })))).toBe(1);
   });
 });

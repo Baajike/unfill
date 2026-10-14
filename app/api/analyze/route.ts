@@ -82,6 +82,16 @@ export async function POST(request: Request) {
     const file = new File([bytes], `recording.${extensionForMimeType(mime)}`, { type: mime });
     const transcript = await transcribe(file);
 
+    // One diagnostic line: counts and timings only, never transcript text. If speech
+    // ends long before the audio does, the capture or the decoder lost audio.
+    const lastSpeechAt = transcript.words?.at(-1)?.end ?? transcript.segments?.at(-1)?.end ?? null;
+    console.info(
+      `[analyze] audio=${mime} bytes=${bytes.length} duration=${transcript.durationSeconds.toFixed(1)}s ` +
+        `words=${transcript.words?.length ?? transcript.text.split(/\s+/).filter(Boolean).length} ` +
+        `lastSpeechAt=${lastSpeechAt === null ? "n/a" : `${lastSpeechAt.toFixed(1)}s`} ` +
+        `timestamps=${transcript.words ? "word" : transcript.segments ? "segment" : "none"}`,
+    );
+
     // Duration comes from the audio itself, so it can't be inflated by the client.
     const duration = Math.min(transcript.durationSeconds, targetSeconds + 5);
     if (duration < MIN_RECORDING_SECONDS - DURATION_TOLERANCE_SECONDS) {
@@ -148,11 +158,16 @@ async function maybeLevelUp(
     .order("created_at", { ascending: false })
     .limit(3);
 
-  const sessions = (recent ?? []).map((s) => ({
-    target_seconds: s.target_seconds,
-    completed: s.completed,
-    fillers_per_minute: metricsSchema.safeParse(s.metrics).data?.fillers_per_minute ?? Infinity,
-  }));
+  const sessions = (recent ?? []).map((s) => {
+    const m = metricsSchema.safeParse(s.metrics).data;
+    return {
+      target_seconds: s.target_seconds,
+      completed: s.completed,
+      // Unreadable metrics never qualify.
+      fillers_per_minute: m?.fillers_per_minute ?? Infinity,
+      words_per_minute: m?.words_per_minute ?? 0,
+    };
+  });
 
   if (nextLevel(level, sessions) > level) {
     // The database function re-checks the rule itself before changing the level.

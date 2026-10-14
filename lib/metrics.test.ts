@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { computeMetrics, countLongPauses, tokenize } from "./metrics";
+import { computeMetrics, countLongPauses, isTooShortToScore, tokenize } from "./metrics";
+
+describe("isTooShortToScore", () => {
+  it("flags sessions under 60 words per minute", () => {
+    expect(isTooShortToScore({ words_per_minute: 0 })).toBe(true);
+    expect(isTooShortToScore({ words_per_minute: 59.9 })).toBe(true);
+    expect(isTooShortToScore({ words_per_minute: 60 })).toBe(false);
+    expect(isTooShortToScore({ words_per_minute: 140 })).toBe(false);
+  });
+
+  it("catches a full-length recording that only captured the first few seconds", () => {
+    // 60 s of audio, but speech only for the first ~4 s.
+    const m = computeMetrics({ text: "So, um, shoes are something I wear every single day.", durationSeconds: 60 });
+    expect(m.words_per_minute).toBe(10);
+    expect(isTooShortToScore(m)).toBe(true);
+  });
+
+  it("treats an empty transcript as too short", () => {
+    expect(isTooShortToScore(computeMetrics({ text: "", durationSeconds: 60 }))).toBe(true);
+  });
+});
 
 describe("tokenize", () => {
   it("keeps contractions and drops punctuation", () => {

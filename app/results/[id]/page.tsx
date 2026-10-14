@@ -4,14 +4,23 @@ import { FeedbackCard } from "@/components/FeedbackCard";
 import { MetricCard } from "@/components/MetricCard";
 import { formatClock } from "@/components/Timer";
 import { TranscriptView } from "@/components/TranscriptView";
+import { MIN_SCORABLE_WPM, isTooShortToScore } from "@/lib/metrics";
 import { getUser } from "@/lib/supabase/server";
 import type { Metrics } from "@/lib/types";
 import { metricsSchema, storedFeedbackSchema, uuidSchema } from "@/lib/validation";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+// How far back to look for the most recent scorable session to compare against.
+const PREVIOUS_LOOKBACK = 20;
 
 function parseMetrics(value: unknown): Metrics | null {
   return metricsSchema.safeParse(value).data ?? null;
+}
+
+/** Metrics worth comparing against: readable and not "too short to score". */
+function scorable(value: unknown): Metrics | null {
+  const m = parseMetrics(value);
+  return m && !isTooShortToScore(m) ? m : null;
 }
 
 function average(values: Array<number | null>): number | null {
@@ -45,8 +54,7 @@ export default async function ResultsPage({ params }: PageProps<"/results/[id]">
       .eq("user_id", user.id)
       .lt("created_at", session.created_at)
       .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .limit(PREVIOUS_LOOKBACK),
     supabase
       .from("sessions")
       .select("metrics")
@@ -55,10 +63,15 @@ export default async function ResultsPage({ params }: PageProps<"/results/[id]">
       .gte("created_at", weekStart),
   ]);
 
-  const previous = parseMetrics(prevRes.data?.metrics);
-  const week = (weekRes.data ?? []).map((s) => parseMetrics(s.metrics)).filter((m) => m !== null);
-  const avg = (pick: (m: Metrics) => number | null) => (week.length > 0 ? average(week.map(pick)) : null);
-  const prev = (pick: (m: Metrics) => number | null) => (previous ? pick(previous) : null);
+  const tooShort = metrics !== null && isTooShortToScore(metrics);
+  // "Too short to score" sessions are left out of both comparisons.
+  const previous = (prevRes.data ?? []).map((s) => scorable(s.metrics)).find((m) => m !== null) ?? null;
+  const week = (weekRes.data ?? []).map((s) => scorable(s.metrics)).filter((m) => m !== null);
+  // undefined hides the comparison rows entirely (used when this session is too short).
+  const avg = (pick: (m: Metrics) => number | null) =>
+    tooShort ? undefined : week.length > 0 ? average(week.map(pick)) : null;
+  const prev = (pick: (m: Metrics) => number | null) =>
+    tooShort ? undefined : previous ? pick(previous) : null;
 
   const uniquePct = (m: Metrics) => m.unique_word_ratio * 100;
   const breakdown = Object.entries(metrics?.filler_breakdown ?? {}).sort((a, b) => b[1] - a[1]);
@@ -68,10 +81,22 @@ export default async function ResultsPage({ params }: PageProps<"/results/[id]">
       <header>
         <p className="text-sm text-muted">
           {formatClock(session.duration_seconds)} of {formatClock(session.target_seconds)}
-          {session.completed ? " · Completed" : " · Shorter than your target"}
+          {tooShort ? " · Too short to score" : session.completed ? " · Completed" : " · Shorter than your target"}
         </p>
         <h1 className="mt-2 text-3xl leading-tight font-semibold tracking-tight">{session.topic}</h1>
       </header>
+
+      {metrics && tooShort ? (
+        <section className="rounded-card bg-accent-soft p-5" role="status">
+          <h2 className="text-lg font-semibold text-accent-strong">Too short to score</h2>
+          <p className="mt-2 leading-relaxed">
+            We only caught {metrics.word_count} {metrics.word_count === 1 ? "word" : "words"} (
+            {Math.round(metrics.words_per_minute)} per minute; scoring starts at {MIN_SCORABLE_WPM}). If
+            you spoke the whole time, the recording probably didn&apos;t capture everything. This session
+            isn&apos;t compared or counted toward your level.
+          </p>
+        </section>
+      ) : null}
 
       {metrics ? (
         <section aria-label="Your numbers" className="grid grid-cols-2 gap-3">

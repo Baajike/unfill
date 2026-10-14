@@ -1,4 +1,8 @@
 // Keep in sync with public.apply_level_up() in supabase/migrations/0001_init.sql.
+// This TypeScript check is the stricter gate: it also rejects "too short to score"
+// sessions, and the database function is only called when this check passes.
+
+import { isTooShortToScore } from "./metrics";
 
 export const LEVEL_MINUTES = [1, 2, 3, 5, 7, 10, 15, 20, 30, 45, 60] as const;
 
@@ -39,6 +43,7 @@ export type LevelSession = {
   target_seconds: number;
   completed: boolean;
   fillers_per_minute: number;
+  words_per_minute: number;
 };
 
 /**
@@ -57,6 +62,7 @@ export function nextLevel(currentLevel: number, recentSessions: LevelSession[]):
       (s) =>
         s.target_seconds === target &&
         s.completed &&
+        !isTooShortToScore(s) &&
         s.fillers_per_minute <= LEVEL_UP_MAX_FILLERS_PER_MINUTE,
     );
 
