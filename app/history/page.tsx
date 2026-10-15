@@ -4,6 +4,7 @@ import { ButtonLink } from "@/components/Button";
 import { formatClock } from "@/components/Timer";
 import { DEFAULT_TIMEZONE, isValidTimeZone } from "@/lib/streak";
 import { getUser } from "@/lib/supabase/server";
+import { categoryLabel } from "@/lib/topics";
 import { metricsSchema } from "@/lib/validation";
 
 const HISTORY_LIMIT = 200;
@@ -16,7 +17,7 @@ export default async function HistoryPage() {
     supabase.from("profiles").select("timezone").eq("id", user.id).single(),
     supabase
       .from("sessions")
-      .select("id, topic, duration_seconds, metrics, created_at")
+      .select("id, topic, topic_category, duration_seconds, metrics, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(HISTORY_LIMIT),
@@ -46,6 +47,7 @@ export default async function HistoryPage() {
         <ul className="mt-6 flex flex-col divide-y divide-line">
           {sessions.map((s) => {
             const m = metricsSchema.safeParse(s.metrics).data;
+            const category = categoryLabel(s.topic_category);
             return (
               <li key={s.id}>
                 <Link
@@ -57,6 +59,7 @@ export default async function HistoryPage() {
                     <p className="shrink-0 text-sm text-muted">{dateFormat.format(new Date(s.created_at))}</p>
                   </div>
                   <p className="mt-1 text-sm text-muted tabular-nums">
+                    {category ? `${category} · ` : ""}
                     {formatClock(s.duration_seconds)}
                     {m ? ` · ${m.fillers_per_minute.toFixed(1)} fillers/min · ${Math.round(m.words_per_minute)} wpm` : ""}
                   </p>

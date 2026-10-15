@@ -123,6 +123,8 @@ export async function POST(request: Request) {
         user_id: user.id,
         topic: topic.text,
         topic_tier: topic.tier,
+        // From the server-side topic list, never from the client.
+        topic_category: topic.category,
         target_seconds: targetSeconds,
         duration_seconds: metrics.duration_seconds,
         completed: isCompleted(duration, targetSeconds),

@@ -1,9 +1,30 @@
 export type TopicTier = "concrete" | "process" | "opinion";
 
+export const TOPIC_CATEGORY_IDS = [
+  "animals-nature",
+  "food",
+  "technology",
+  "money-work",
+  "travel-places",
+  "health-habits",
+  "sports-games",
+  "culture-society",
+  "science",
+  "politics-issues",
+  "everyday-life",
+] as const;
+
+/** Keep in sync with the check constraint in supabase/migrations/0002_topic_category.sql. */
+export type TopicCategory = (typeof TOPIC_CATEGORY_IDS)[number];
+
+/** What the user picks on the home screen. "random" draws from every category. */
+export type CategoryChoice = TopicCategory | "random";
+
 export type Topic = {
   id: string;
   text: string;
   tier: TopicTier;
+  category: TopicCategory;
 };
 
 export type TimedWord = { word: string; start: number; end: number };
@@ -55,7 +76,7 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
-/** Hand-written to match supabase/migrations/0001_init.sql. */
+/** Hand-written to match supabase/migrations/0001_init.sql and 0002_topic_category.sql. */
 export type Database = {
   public: {
     Tables: {
@@ -81,6 +102,8 @@ export type Database = {
           user_id: string;
           topic: string;
           topic_tier: TopicTier;
+          /** null for sessions saved before migration 0002. */
+          topic_category: TopicCategory | null;
           target_seconds: number;
           duration_seconds: number;
           completed: boolean;
@@ -94,6 +117,7 @@ export type Database = {
           user_id: string;
           topic: string;
           topic_tier: TopicTier;
+          topic_category?: TopicCategory | null;
           target_seconds: number;
           duration_seconds: number;
           completed: boolean;
@@ -105,6 +129,7 @@ export type Database = {
         Update: {
           topic?: string;
           topic_tier?: TopicTier;
+          topic_category?: TopicCategory | null;
           target_seconds?: number;
           duration_seconds?: number;
           completed?: boolean;

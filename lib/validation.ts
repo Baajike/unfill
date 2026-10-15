@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Feedback, Metrics } from "./types";
+import { TOPIC_CATEGORY_IDS, type CategoryChoice, type Feedback, type Metrics } from "./types";
 
 /** Groq's Whisper limit. On Vercel the platform's 4.5 MB body cap applies first. */
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
@@ -114,3 +114,6 @@ export const credentialsSchema = z.object({
 });
 
 export const uuidSchema = z.uuid();
+
+/** A category id from the home screen. Anything not on the fixed list is rejected. */
+export const categoryChoiceSchema = z.enum(["random", ...TOPIC_CATEGORY_IDS]) satisfies z.ZodType<CategoryChoice>;

@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { signOut } from "@/app/auth/actions";
-import { ButtonLink } from "@/components/Button";
+import { CategoryPicker } from "@/components/CategoryPicker";
 import { StreakBadge } from "@/components/StreakBadge";
 import { levelMinutes, targetSecondsForLevel } from "@/lib/levels";
 import { DEFAULT_TIMEZONE, computeStreak } from "@/lib/streak";
 import { getUser } from "@/lib/supabase/server";
+import { CATEGORIES } from "@/lib/topics";
 
 // Bounded so the query stays small; at 15 sessions/day this still covers 200+ days.
 const STREAK_LOOKBACK_ROWS = 3000;
@@ -75,11 +76,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <div className="mt-auto pt-12">
-        <ButtonLink href="/session" size="xl" className="w-full">
-          Start
-        </ButtonLink>
-      </div>
+      <CategoryPicker categories={CATEGORIES} className="mt-auto pt-12" />
     </div>
   );
 }
