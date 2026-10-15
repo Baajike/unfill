@@ -3,11 +3,14 @@ export function WordsToTry({ words, className = "" }: { words: string[]; classNa
   if (words.length === 0) return null;
 
   return (
-    <section aria-label="Words to try" className={`rounded-card bg-surface p-4 ${className}`}>
-      <p className="text-sm text-muted">Words to try</p>
-      <ul className="mt-2 flex flex-wrap gap-2">
+    <section aria-label="Words to try" className={className}>
+      <p className="section-label">Words to try today</p>
+      <ul className="mt-3 flex flex-wrap gap-2">
         {words.map((word) => (
-          <li key={word} className="rounded-full bg-accent-soft px-3 py-1 text-sm text-accent-strong">
+          <li
+            key={word}
+            className="inline-flex h-[38px] items-center rounded-full bg-sky px-4 text-sm font-bold text-sky-ink"
+          >
             {word}
           </li>
         ))}

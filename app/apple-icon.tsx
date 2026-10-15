@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { Mark } from "@/components/Logo";
 
 export const size = { width: 180, height: 180 };
 export const contentType = "image/png";
@@ -14,17 +15,23 @@ export default function AppleIcon() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "#5b8a6a",
+          background: "#E8F5EE",
         }}
       >
         <div
           style={{
-            width: 79,
-            height: 79,
+            width: 124,
+            height: 124,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             borderRadius: "50%",
-            border: "13px solid #ffffff",
+            background: "#ffffff",
+            boxShadow: "0 5px 14px rgba(63,107,80,.22)",
           }}
-        />
+        >
+          <Mark size={124} />
+        </div>
       </div>
     ),
     size,

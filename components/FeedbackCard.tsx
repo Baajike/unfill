@@ -3,8 +3,8 @@ import type { Feedback } from "@/lib/types";
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="text-sm font-medium text-muted">{title}</h3>
-      <div className="mt-1.5">{children}</div>
+      <h3 className="section-label">{title}</h3>
+      <div className="mt-2">{children}</div>
     </section>
   );
 }
@@ -12,22 +12,22 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export function FeedbackCard({ feedback }: { feedback: Feedback | null }) {
   if (!feedback) {
     return (
-      <div className="rounded-card bg-surface p-5 text-muted">
+      <div className="rounded-card border border-border bg-white p-5 text-muted shadow-card">
         Written feedback isn&apos;t available for this session, but your numbers and transcript are saved.
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-6 rounded-card bg-surface p-5">
-      <p className="text-lg leading-relaxed">{feedback.summary}</p>
+    <div className="flex flex-col gap-6 rounded-card border border-border bg-white p-5 shadow-card">
+      <p className="text-lg leading-relaxed font-semibold">{feedback.summary}</p>
 
       <Section title="You did well">
         <p>{feedback.did_well}</p>
       </Section>
 
       <Section title="Focus next time">
-        <p className="rounded-xl bg-accent-soft px-4 py-3 text-accent-strong">{feedback.focus_next}</p>
+        <p className="rounded-field bg-mint px-4 py-3 font-semibold text-mint-ink">{feedback.focus_next}</p>
       </Section>
 
       {feedback.vocabulary_upgrades.length > 0 ? (
@@ -35,15 +35,17 @@ export function FeedbackCard({ feedback }: { feedback: Feedback | null }) {
           <ul className="flex flex-col gap-4">
             {feedback.vocabulary_upgrades.map((u, i) => (
               <li key={i}>
-                <p>
-                  <span className="text-muted line-through decoration-faint">{u.you_said}</span>
-                  <span className="mx-2 text-faint" aria-hidden>
+                <p className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-baseline gap-3">
+                  <span className="break-words text-muted line-through decoration-muted/60">{u.you_said}</span>
+                  <span className="text-label" aria-hidden>
                     →
                   </span>
-                  <span className="sr-only">try instead</span>
-                  <span className="font-medium">{u.try_instead.join(", ")}</span>
+                  <span className="break-words font-bold">
+                    <span className="sr-only">try instead </span>
+                    {u.try_instead.join(", ")}
+                  </span>
                 </p>
-                <p className="mt-0.5 text-sm text-muted">{u.why}</p>
+                <p className="mt-1 text-sm text-muted">{u.why}</p>
               </li>
             ))}
           </ul>

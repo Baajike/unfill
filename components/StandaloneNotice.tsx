@@ -33,9 +33,9 @@ export function StandaloneNotice() {
   const show = useSyncExternalStore(subscribe, isIosStandalone, () => false);
   if (!show) return null;
   return (
-    <p className="rounded-card bg-surface p-4 text-sm leading-relaxed text-muted" role="note">
+    <p className="rounded-card bg-butter p-4 text-sm leading-relaxed text-butter-ink shadow-butter" role="note">
       Recording from the home screen is unreliable on this iPhone. For best results, open{" "}
-      <span className="font-medium text-ink">unfill.vercel.app</span> in Safari.
+      <span className="font-bold">unfill.vercel.app</span> in Safari.
     </p>
   );
 }

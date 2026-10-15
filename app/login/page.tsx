@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { signIn, signUp, type AuthState } from "@/app/auth/actions";
 import { Button } from "@/components/Button";
+import { Logo } from "@/components/Logo";
 
 const initial: AuthState = { error: null };
 
@@ -24,72 +25,95 @@ export default function LoginPage() {
   const pending = signingIn || signingUp;
 
   const input =
-    "min-h-14 w-full rounded-2xl border border-line bg-paper px-4 text-lg outline-none transition " +
-    "placeholder:text-faint focus:border-accent";
+    "min-h-14 w-full rounded-field border border-border bg-field px-4 text-base outline-none transition " +
+    "placeholder:text-label focus:border-primary focus:bg-white";
+  const label = "text-sm font-bold text-ink";
 
   return (
     <div className="flex flex-1 flex-col justify-center animate-rise">
-      <h1 className="text-4xl font-semibold tracking-tight">Unfill</h1>
-      <p className="mt-2 text-lg text-muted">Speak a little every day. Say less filler.</p>
-
-      <form
-        action={isSignUp ? signUpAction : signInAction}
-        className="mt-10 flex flex-col gap-3"
-      >
-        <input
-          type="hidden"
-          name="timezone"
-          ref={(el) => {
-            // defaultValue too, so React's post-action form reset keeps it.
-            if (el) el.defaultValue = el.value = browserTimeZone();
-          }}
-        />
-        <label className="sr-only" htmlFor="email">
-          Email
-        </label>
-        <input
-          id="email"
-          name="email"
-          type="email"
-          autoComplete="email"
-          inputMode="email"
-          placeholder="Email"
-          required
-          maxLength={254}
-          className={input}
-        />
-        <label className="sr-only" htmlFor="password">
-          Password
-        </label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          autoComplete={isSignUp ? "new-password" : "current-password"}
-          placeholder={isSignUp ? "Password (8+ characters)" : "Password"}
-          required
-          minLength={8}
-          maxLength={72}
-          className={input}
-        />
-
-        <p className="min-h-6 text-sm text-muted" role="status" aria-live="polite">
-          {state.error}
+      <div className="flex flex-col items-center text-center">
+        <Logo size="lg" />
+        <h1 className="mt-5 text-[2rem] leading-tight font-extrabold tracking-tight">Unfill</h1>
+        <p className="mt-2 text-muted">
+          Speak a little every day.
+          <br />
+          Say less filler.
         </p>
+      </div>
 
-        <Button type="submit" size="lg" disabled={pending}>
-          {pending ? "One moment" : isSignUp ? "Create account" : "Sign in"}
+      <div className="mt-8 rounded-card border border-white bg-white/86 p-6 shadow-card backdrop-blur-md">
+        <form action={isSignUp ? signUpAction : signInAction} className="flex flex-col gap-4">
+          <input
+            type="hidden"
+            name="timezone"
+            ref={(el) => {
+              // defaultValue too, so React's post-action form reset keeps it.
+              if (el) el.defaultValue = el.value = browserTimeZone();
+            }}
+          />
+          <div className="flex flex-col gap-1.5">
+            <label className={label} htmlFor="email">
+              Email
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              inputMode="email"
+              placeholder="Email"
+              required
+              maxLength={254}
+              className={input}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className={label} htmlFor="password">
+              Password
+            </label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete={isSignUp ? "new-password" : "current-password"}
+              placeholder={isSignUp ? "Password (8+ characters)" : "Password"}
+              required
+              minLength={8}
+              maxLength={72}
+              className={input}
+            />
+          </div>
+
+          <p className="min-h-6 text-sm font-semibold text-peach-ink" role="status" aria-live="polite">
+            {state.error}
+          </p>
+
+          <Button type="submit" size="lg" disabled={pending}>
+            {pending ? "One moment" : isSignUp ? "Create account" : "Sign in"}
+          </Button>
+        </form>
+
+        <Button
+          variant="ghost"
+          size="md"
+          className="mt-2 w-full"
+          onClick={() => setMode(isSignUp ? "signin" : "signup")}
+        >
+          {isSignUp ? "I already have an account" : "New here? Create an account"}
         </Button>
-      </form>
+      </div>
 
-      <Button
-        variant="ghost"
-        size="md"
-        className="mt-4"
-        onClick={() => setMode(isSignUp ? "signin" : "signup")}
-      >
-        {isSignUp ? "I already have an account" : "New here? Create an account"}
-      </Button>
+      <ul aria-hidden className="mt-6 flex justify-center gap-2">
+        <li className="inline-flex h-8 items-center rounded-full bg-mint px-3.5 text-[0.8125rem] font-bold text-mint-ink">
+          Speak
+        </li>
+        <li className="inline-flex h-8 items-center rounded-full bg-peach px-3.5 text-[0.8125rem] font-bold text-peach-ink">
+          Reflect
+        </li>
+        <li className="inline-flex h-8 items-center rounded-full bg-lavender px-3.5 text-[0.8125rem] font-bold text-lavender-ink">
+          Grow
+        </li>
+      </ul>
     </div>
   );
 }

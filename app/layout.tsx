@@ -1,6 +1,16 @@
 import type { Metadata, Viewport } from "next";
+import { Manrope } from "next/font/google";
 import { connection } from "next/server";
+import { Glow } from "@/components/Glow";
 import "./globals.css";
+
+// Self-hosted by next/font, so the CSP's font-src 'self' covers it.
+const manrope = Manrope({
+  subsets: ["latin"],
+  weight: ["400", "600", "700", "800"],
+  variable: "--font-manrope",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Unfill",
@@ -26,9 +36,10 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   await connection();
 
   return (
-    <html lang="en">
-      <body className="min-h-dvh bg-paper text-ink">
-        <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1.25rem,env(safe-area-inset-left))] pr-[max(1.25rem,env(safe-area-inset-right))]">
+    <html lang="en" className={manrope.variable}>
+      <body className="relative min-h-dvh overflow-x-hidden bg-white text-ink">
+        <Glow />
+        <main className="relative mx-auto flex min-h-dvh w-full max-w-md flex-col pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1.5rem,env(safe-area-inset-left))] pr-[max(1.5rem,env(safe-area-inset-right))]">
           {children}
         </main>
       </body>

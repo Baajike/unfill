@@ -1,11 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MIN_RECORDING_SECONDS } from "@/lib/levels";
 import { isEssentiallySilent, measureActivity, rmsToDbfs, rootMeanSquare } from "@/lib/metrics";
 import type { Topic } from "@/lib/types";
-import { Button, ButtonLink } from "./Button";
+import { Button, ButtonLink, pillLinkClass } from "./Button";
 import { LevelMeter } from "./LevelMeter";
 import { Timer, formatClock } from "./Timer";
 
@@ -554,15 +555,17 @@ export function Recorder({
   if (phase === "ready") {
     return (
       <div className="flex flex-1 flex-col animate-rise">
-        <ButtonLink href="/" variant="ghost" size="md" className="-ml-5 self-start">
+        <Link href="/" className={`${pillLinkClass} self-start`}>
           Back
-        </ButtonLink>
+        </Link>
         <div className="flex flex-1 flex-col justify-center py-10">
-          <p className="text-sm font-medium tracking-wide text-accent-strong uppercase">
-            {TIER_LABEL[topic.tier]}
-          </p>
-          <h1 className="mt-3 text-4xl leading-tight font-semibold tracking-tight">{topic.text}</h1>
-          <p className="mt-4 text-muted">Speak for {minutesLabel(targetSeconds)}. Take your time.</p>
+          <div className="rounded-card border border-border bg-white p-6 shadow-card">
+            <p className="inline-flex h-7 items-center rounded-full bg-mint px-3 text-[0.6875rem] font-extrabold tracking-[0.9px] text-mint-ink uppercase">
+              {TIER_LABEL[topic.tier]}
+            </p>
+            <h1 className="mt-4 text-3xl leading-tight font-extrabold tracking-tight">{topic.text}</h1>
+            <p className="mt-3 text-muted">Speak for {minutesLabel(targetSeconds)}. Take your time.</p>
+          </div>
         </div>
         {notice ? <div className="mb-4">{notice}</div> : null}
         <div className="flex flex-col gap-3">
@@ -574,7 +577,7 @@ export function Recorder({
               Skip topic
             </Button>
           ) : (
-            <p className="min-h-11 text-center text-sm leading-[2.75rem] text-faint">Topic skipped</p>
+            <p className="min-h-11 text-center text-sm leading-[2.75rem] text-muted">Topic skipped</p>
           )}
         </div>
       </div>
@@ -584,10 +587,16 @@ export function Recorder({
   if (phase === "countdown") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center text-center">
-        <p className="max-w-xs text-xl text-muted">{topic.text}</p>
-        <p key={countdown} className="mt-10 text-9xl font-light tabular-nums animate-rise" aria-live="assertive">
-          {countdown}
-        </p>
+        <p className="max-w-xs text-xl font-semibold text-muted">{topic.text}</p>
+        <div className="mt-10 flex h-44 w-44 items-center justify-center rounded-full bg-mint shadow-mint">
+          <p
+            key={countdown}
+            className="text-8xl font-extrabold text-mint-ink tabular-nums animate-rise"
+            aria-live="assertive"
+          >
+            {countdown}
+          </p>
+        </div>
         <div className="mt-10 w-40">
           <LevelMeter level={level} />
         </div>
@@ -600,16 +609,16 @@ export function Recorder({
     const canStop = elapsed >= MIN_RECORDING_SECONDS;
     return (
       <div className="flex flex-1 flex-col">
-        <div className="flex items-center gap-2 text-sm text-muted">
-          <span className="h-2.5 w-2.5 rounded-full bg-accent animate-breathe" aria-hidden />
+        <div className="inline-flex h-8 items-center gap-2 self-start rounded-full bg-peach px-3 text-sm font-bold text-peach-ink">
+          <span className="h-2.5 w-2.5 rounded-full bg-peach-ink animate-breathe" aria-hidden />
           Recording
         </div>
-        <p className="mt-4 text-2xl leading-snug font-medium">{topic.text}</p>
+        <p className="mt-4 text-2xl leading-snug font-bold">{topic.text}</p>
         <div className="flex flex-1 flex-col justify-center gap-8">
           <Timer remaining={remaining} total={targetSeconds} />
           <div className="flex flex-col gap-3">
             <LevelMeter level={level} />
-            <p className="min-h-12 text-center text-sm leading-relaxed text-ink" role="alert">
+            <p className="min-h-12 text-center text-sm leading-relaxed font-semibold text-peach-ink" role="alert">
               {cantHear ? `We can't hear you. Check your microphone. ${RESTART_HINT}` : ""}
             </p>
           </div>
@@ -617,7 +626,7 @@ export function Recorder({
         <Button size="xl" variant="secondary" onClick={stop} disabled={!canStop}>
           Stop
         </Button>
-        <p className="mt-3 min-h-6 text-center text-sm text-faint">
+        <p className="mt-3 min-h-6 text-center text-sm text-muted">
           {canStop ? "" : `You can stop after ${formatClock(MIN_RECORDING_SECONDS)}`}
         </p>
       </div>
@@ -627,8 +636,8 @@ export function Recorder({
   if (phase === "checking") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center text-center" aria-live="polite">
-        <span className="h-12 w-12 rounded-full bg-accent-soft animate-breathe" aria-hidden />
-        <p className="mt-6 text-lg text-muted">Checking your recording</p>
+        <span className="h-14 w-14 rounded-full bg-mint shadow-mint animate-breathe" aria-hidden />
+        <p className="mt-6 text-lg font-semibold text-muted">Checking your recording</p>
       </div>
     );
   }
@@ -636,9 +645,9 @@ export function Recorder({
   if (phase === "silent" && recording) {
     return (
       <div className="flex flex-1 flex-col animate-rise">
-        <p className="text-sm text-muted">{formatClock(recording.seconds)} recorded</p>
+        <p className="section-label">{formatClock(recording.seconds)} recorded</p>
         <div className="flex flex-1 flex-col justify-center gap-4 py-8" role="alert">
-          <h1 className="text-3xl leading-tight font-semibold tracking-tight">No speech was recorded</h1>
+          <h1 className="text-3xl leading-tight font-extrabold tracking-tight">No speech was recorded</h1>
           <p className="leading-relaxed text-muted">
             The microphone didn&apos;t pick up your voice, so this wasn&apos;t analysed and doesn&apos;t
             count toward today&apos;s limit. Check your microphone and try again. {RESTART_HINT}
@@ -663,12 +672,12 @@ export function Recorder({
     const canAnalyse = longEnough && fits;
     return (
       <div className="flex flex-1 flex-col animate-rise">
-        <p className="text-sm text-muted">{formatClock(recording.seconds)} recorded</p>
-        <h1 className="mt-2 text-3xl leading-tight font-semibold tracking-tight">{topic.text}</h1>
+        <p className="section-label">{formatClock(recording.seconds)} recorded</p>
+        <h1 className="mt-2 text-3xl leading-tight font-extrabold tracking-tight">{topic.text}</h1>
 
         <div className="flex flex-1 flex-col justify-center gap-4 py-8">
           {recording.interrupted ? (
-            <p className="rounded-card bg-surface p-4 leading-relaxed" role="alert">
+            <p className="rounded-card bg-peach p-4 leading-relaxed text-peach-ink shadow-peach" role="alert">
               Your microphone was interrupted, so the recording stopped early. Listen back to check
               what was captured{canAnalyse ? ", then analyse it if it sounds right." : "."}
             </p>
@@ -705,8 +714,8 @@ export function Recorder({
   if (phase === "uploading") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center text-center" aria-live="polite">
-        <span className="h-16 w-16 rounded-full bg-accent-soft animate-breathe" aria-hidden />
-        <p className="mt-8 text-xl">Listening back to you</p>
+        <span className="h-16 w-16 rounded-full bg-lavender shadow-lavender animate-breathe" aria-hidden />
+        <p className="mt-8 text-xl font-bold">Listening back to you</p>
         <p className="mt-2 text-muted">This usually takes a few seconds.</p>
       </div>
     );
@@ -714,7 +723,9 @@ export function Recorder({
 
   return (
     <div className="flex flex-1 flex-col justify-center gap-8 animate-rise" role="alert">
-      <p className="text-xl leading-relaxed">{error}</p>
+      <p className="rounded-card border border-border bg-white p-5 text-lg leading-relaxed font-semibold shadow-card">
+        {error}
+      </p>
       <div className="flex flex-col gap-3">
         {canRetryUpload && recording ? (
           <Button size="lg" onClick={analyse}>
