@@ -30,6 +30,9 @@ cp .env.example .env.local
 
 1. Create a new project.
 2. **SQL Editor** → New query → paste all of `supabase/migrations/0001_init.sql` → Run.
+   Then run each later migration the same way, in order: `0002_topic_category.sql`, then
+   `0003_word_bank.sql` (the word bank). On an existing project, run only the ones you
+   haven't run yet, before deploying the code that needs them.
 3. **Authentication → Sign In / Providers → Email**: keep Email enabled and turn **off**
    "Confirm email". (The app has no email-confirmation callback page.)
 4. **Project Settings → API** (or **API Keys**): copy the Project URL and the `anon` /

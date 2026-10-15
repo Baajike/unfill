@@ -11,6 +11,7 @@ import { computeMetrics } from "@/lib/metrics";
 import { checkDailyLimit } from "@/lib/rate-limit";
 import { getUser } from "@/lib/supabase/server";
 import { getTopic } from "@/lib/topics";
+import type { Feedback } from "@/lib/types";
 import {
   MAX_AUDIO_BYTES,
   baseMimeType,
@@ -19,8 +20,14 @@ import {
   looksLikeAudio,
   metricsSchema,
 } from "@/lib/validation";
+import { findUsedPhrases, pickPhrasesToSave } from "@/lib/word-bank";
 
 export const maxDuration = 120;
+
+type SupabaseServerClient = Awaited<ReturnType<typeof getUser>>["supabase"];
+
+// Bounded so the match stays cheap even for a very large bank.
+const BANK_LOOKUP_LIMIT = 500;
 
 // Whisper measures duration slightly differently from the browser clock.
 const DURATION_TOLERANCE_SECONDS = 2;
@@ -117,6 +124,9 @@ export async function POST(request: Request) {
     });
     const { feedback, source } = await generateFeedback({ transcript: text, metrics, topic });
 
+    // Checked against the bank as it was before this session's suggestions are added.
+    const bankWordsUsed = await findBankWordsUsed(supabase, user.id, text);
+
     const { data: saved, error: insertError } = await supabase
       .from("sessions")
       .insert({
@@ -129,7 +139,7 @@ export async function POST(request: Request) {
         duration_seconds: metrics.duration_seconds,
         completed: isCompleted(duration, targetSeconds),
         transcript: text,
-        metrics,
+        metrics: bankWordsUsed.length > 0 ? { ...metrics, bank_words_used: bankWordsUsed } : metrics,
         feedback,
         feedback_source: source,
       })
@@ -137,6 +147,7 @@ export async function POST(request: Request) {
       .single();
     if (insertError || !saved) throw new Error("Session insert failed");
 
+    await updateWordBank(supabase, user.id, saved.id, bankWordsUsed, feedback);
     await maybeLevelUp(supabase, user.id, level);
 
     return NextResponse.json({ id: saved.id }, { headers: { "Cache-Control": "no-store" } });
@@ -160,8 +171,77 @@ export async function POST(request: Request) {
   }
 }
 
+/** Bank phrases (new or used) said in this transcript. Never throws; [] on any error. */
+async function findBankWordsUsed(
+  supabase: SupabaseServerClient,
+  userId: string,
+  transcript: string,
+): Promise<string[]> {
+  try {
+    const { data, error } = await supabase
+      .from("word_bank")
+      .select("phrase")
+      .eq("user_id", userId)
+      .in("status", ["new", "used"])
+      .order("created_at", { ascending: true })
+      .limit(BANK_LOOKUP_LIMIT);
+    if (error) {
+      console.warn("[word-bank] lookup failed");
+      return [];
+    }
+    return findUsedPhrases(transcript, (data ?? []).map((w) => w.phrase));
+  } catch {
+    console.warn("[word-bank] lookup failed");
+    return [];
+  }
+}
+
+/**
+ * Counts the words used in this session, then saves its new suggestions.
+ * Never throws: the session is already saved. Logs counts only, never words.
+ */
+async function updateWordBank(
+  supabase: SupabaseServerClient,
+  userId: string,
+  sessionId: string,
+  used: string[],
+  feedback: Feedback | null,
+) {
+  let recorded = 0;
+  let submitted = 0;
+  try {
+    if (used.length > 0) {
+      // The database function re-checks ownership and the transcript itself.
+      const { data, error } = await supabase.rpc("record_word_use", {
+        p_session_id: sessionId,
+        p_phrases: used,
+      });
+      if (error) console.warn("[word-bank] record use failed");
+      else recorded = data ?? 0;
+    }
+
+    const words = pickPhrasesToSave(feedback?.vocabulary_upgrades ?? []);
+    if (words.length > 0) {
+      const { error } = await supabase.from("word_bank").upsert(
+        words.map((w) => ({
+          user_id: userId,
+          phrase: w.phrase,
+          replaces: w.replaces,
+          source_session_id: sessionId,
+        })),
+        { onConflict: "user_id,phrase_key", ignoreDuplicates: true },
+      );
+      if (error) console.warn("[word-bank] save failed");
+      else submitted = words.length;
+    }
+  } catch {
+    console.warn("[word-bank] update failed");
+  }
+  console.info(`[word-bank] matched=${used.length} recorded=${recorded} submitted=${submitted}`);
+}
+
 async function maybeLevelUp(
-  supabase: Awaited<ReturnType<typeof getUser>>["supabase"],
+  supabase: SupabaseServerClient,
   userId: string,
   level: number,
 ) {

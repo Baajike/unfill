@@ -85,6 +85,7 @@ export const metricsSchema = z.object({
   unique_word_ratio: z.number(),
   top_repeated: z.array(z.object({ word: z.string(), count: z.number() })),
   long_pauses: z.number().nullable(),
+  bank_words_used: z.array(z.string().max(40)).max(50).optional(),
 }) satisfies z.ZodType<Metrics>;
 
 const timed = z.object({ start: z.number(), end: z.number() });
@@ -114,6 +115,9 @@ export const credentialsSchema = z.object({
 });
 
 export const uuidSchema = z.uuid();
+
+/** The word id posted by the Dismiss form on /words. */
+export const wordIdSchema = uuidSchema;
 
 /** A category id from the home screen. Anything not on the fixed list is rejected. */
 export const categoryChoiceSchema = z.enum(["random", ...TOPIC_CATEGORY_IDS]) satisfies z.ZodType<CategoryChoice>;

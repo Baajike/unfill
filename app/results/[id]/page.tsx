@@ -74,6 +74,7 @@ export default async function ResultsPage({ params }: PageProps<"/results/[id]">
     tooShort ? undefined : previous ? pick(previous) : null;
 
   const uniquePct = (m: Metrics) => m.unique_word_ratio * 100;
+  const bankWordsUsed = metrics?.bank_words_used ?? [];
   const breakdown = Object.entries(metrics?.filler_breakdown ?? {}).sort((a, b) => b[1] - a[1]);
 
   return (
@@ -85,6 +86,15 @@ export default async function ResultsPage({ params }: PageProps<"/results/[id]">
         </p>
         <h1 className="mt-2 text-3xl leading-tight font-semibold tracking-tight">{session.topic}</h1>
       </header>
+
+      {bankWordsUsed.length > 0 ? (
+        <section className="rounded-card bg-accent-soft p-5" role="status">
+          <p className="leading-relaxed text-accent-strong">
+            You used {bankWordsUsed.length} {bankWordsUsed.length === 1 ? "word" : "words"} from your bank:{" "}
+            <span className="font-semibold">{bankWordsUsed.join(", ")}</span>
+          </p>
+        </section>
+      ) : null}
 
       {metrics && tooShort ? (
         <section className="rounded-card bg-accent-soft p-5" role="status">
