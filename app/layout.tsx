@@ -12,10 +12,28 @@ const manrope = Manrope({
   display: "swap",
 });
 
+const MARKETING_TITLE = "Unfill — speak with fewer filler words";
+const DESCRIPTION =
+  "Unfill gives you a random topic, a timer and honest feedback. Speak for a minute a day and watch your filler words fall.";
+
 export const metadata: Metadata = {
-  title: "Unfill",
-  description: "Daily speaking practice without the filler words.",
+  metadataBase: new URL("https://unfill.vercel.app"),
+  // App pages stay "Unfill"; the signed-out landing sets an absolute title in app/page.tsx.
+  title: { default: "Unfill", template: "%s · Unfill" },
+  description: DESCRIPTION,
   applicationName: "Unfill",
+  openGraph: {
+    type: "website",
+    siteName: "Unfill",
+    title: MARKETING_TITLE,
+    description: DESCRIPTION,
+    url: "/",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: MARKETING_TITLE,
+    description: DESCRIPTION,
+  },
   appleWebApp: {
     capable: true,
     title: "Unfill",

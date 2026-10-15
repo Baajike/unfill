@@ -2,7 +2,8 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/lib/types";
 
-const PUBLIC_PATHS = new Set(["/login"]);
+// "/" shows the landing page to signed-out visitors; the OG image must be fetchable by crawlers.
+const PUBLIC_PATHS = new Set(["/login", "/", "/opengraph-image"]);
 
 function contentSecurityPolicy(nonce: string): string {
   const isDev = process.env.NODE_ENV === "development";

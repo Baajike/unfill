@@ -1,8 +1,10 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { cache } from "react";
 import { signOut } from "@/app/auth/actions";
 import { pillLinkClass } from "@/components/Button";
 import { CategoryPicker } from "@/components/CategoryPicker";
+import { Landing } from "@/components/landing/Landing";
 import { Logo } from "@/components/Logo";
 import { StreakBadge } from "@/components/StreakBadge";
 import { WordsToTry } from "@/components/WordsToTry";
@@ -29,9 +31,18 @@ function greeting(timezone: string): string {
   return "Good evening";
 }
 
+// One auth check per request, shared by generateMetadata and the page.
+const getUserOnce = cache(getUser);
+
+export async function generateMetadata(): Promise<Metadata> {
+  const { user } = await getUserOnce();
+  return user ? {} : { title: { absolute: "Unfill — speak with fewer filler words" } };
+}
+
 export default async function HomePage() {
-  const { supabase, user } = await getUser();
-  if (!user) redirect("/login");
+  const { supabase, user } = await getUserOnce();
+  // Signed-out visitors get the public landing page; no user queries run for them.
+  if (!user) return <Landing />;
 
   const [profileRes, completedRes, totalRes, wordsRes] = await Promise.all([
     supabase.from("profiles").select("current_level, timezone").eq("id", user.id).single(),
