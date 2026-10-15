@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { computeMetrics, countLongPauses, isTooShortToScore, tokenize } from "./metrics";
+import {
+  computeMetrics,
+  countLongPauses,
+  isEssentiallySilent,
+  isTooShortToScore,
+  measureActivity,
+  rmsToDbfs,
+  rootMeanSquare,
+  tokenize,
+} from "./metrics";
 
 describe("isTooShortToScore", () => {
   it("flags sessions under 60 words per minute", () => {
@@ -107,5 +116,46 @@ describe("countLongPauses", () => {
       { text: "b", start: 7, end: 9 },
     ];
     expect(countLongPauses(null, segments)).toBe(1);
+  });
+});
+
+describe("audio activity", () => {
+  const rate = 16_000;
+  const tone = (seconds: number, amplitude: number) =>
+    Float32Array.from({ length: Math.round(seconds * rate) }, (_, i) => amplitude * Math.sin(i / 3));
+
+  it("treats digital silence as silent", () => {
+    const activity = measureActivity(new Float32Array(rate * 60), rate);
+    expect(activity.windows).toBe(1200);
+    expect(activity.activeRatio).toBe(0);
+    expect(activity.peakDbfs).toBe(-Infinity);
+    expect(isEssentiallySilent(activity)).toBe(true);
+  });
+
+  it("treats a quiet background hiss as silent", () => {
+    expect(isEssentiallySilent(measureActivity(tone(60, 0.002), rate))).toBe(true); // about -57 dBFS
+  });
+
+  it("treats normal speech levels as sound", () => {
+    const activity = measureActivity(tone(60, 0.1), rate); // about -23 dBFS
+    expect(activity.activeRatio).toBe(1);
+    expect(isEssentiallySilent(activity)).toBe(false);
+  });
+
+  it("is not fooled by a single click, but accepts a few seconds of speech", () => {
+    const click = new Float32Array(rate * 60);
+    click.set(tone(0.05, 0.5), rate * 10);
+    expect(isEssentiallySilent(measureActivity(click, rate))).toBe(true);
+
+    const fewWords = new Float32Array(rate * 60);
+    fewWords.set(tone(3, 0.1), rate * 5);
+    expect(isEssentiallySilent(measureActivity(fewWords, rate))).toBe(false);
+  });
+
+  it("handles empty input", () => {
+    expect(measureActivity(new Float32Array(0), rate)).toEqual({ windows: 0, activeRatio: 0, peakDbfs: -Infinity });
+    expect(isEssentiallySilent(measureActivity([], rate))).toBe(true);
+    expect(rootMeanSquare([])).toBe(0);
+    expect(rmsToDbfs(1)).toBe(0);
   });
 });

@@ -99,3 +99,44 @@ export function computeMetrics(input: {
     long_pauses: countLongPauses(input.words ?? null, input.segments ?? null),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Audio loudness, used in the browser to refuse silent recordings before upload.
+// ---------------------------------------------------------------------------
+
+export const ACTIVITY_WINDOW_SECONDS = 0.05;
+/** A 50 ms window louder than this counts as sound (speech is usually -30 to -10 dBFS). */
+export const ACTIVE_WINDOW_DBFS = -45;
+/** Below this share of sounding windows, a recording is treated as silent. */
+export const MIN_ACTIVE_RATIO = 0.01;
+
+export function rmsToDbfs(rms: number): number {
+  return rms > 0 ? 20 * Math.log10(rms) : -Infinity;
+}
+
+export function rootMeanSquare(samples: ArrayLike<number>, start = 0, end = samples.length): number {
+  const n = end - start;
+  if (n <= 0) return 0;
+  let sum = 0;
+  for (let i = start; i < end; i++) sum += samples[i] * samples[i];
+  return Math.sqrt(sum / n);
+}
+
+export type AudioActivity = { windows: number; activeRatio: number; peakDbfs: number };
+
+export function measureActivity(samples: ArrayLike<number>, sampleRate: number): AudioActivity {
+  const size = Math.max(1, Math.round(sampleRate * ACTIVITY_WINDOW_SECONDS));
+  const windows = Math.floor(samples.length / size);
+  let active = 0;
+  let peak = -Infinity;
+  for (let w = 0; w < windows; w++) {
+    const db = rmsToDbfs(rootMeanSquare(samples, w * size, (w + 1) * size));
+    if (db > ACTIVE_WINDOW_DBFS) active++;
+    if (db > peak) peak = db;
+  }
+  return { windows, activeRatio: windows > 0 ? active / windows : 0, peakDbfs: peak };
+}
+
+export function isEssentiallySilent(activity: AudioActivity): boolean {
+  return activity.windows === 0 || activity.activeRatio < MIN_ACTIVE_RATIO;
+}

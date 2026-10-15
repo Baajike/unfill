@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import { redirect } from "next/navigation";
 import { Recorder } from "@/components/Recorder";
+import { StandaloneNotice } from "@/components/StandaloneNotice";
 import { targetSecondsForLevel } from "@/lib/levels";
 import { getUser } from "@/lib/supabase/server";
 import { RECENT_TOPICS_TO_AVOID, pickTopics } from "@/lib/topics";
@@ -27,5 +28,5 @@ export default async function SessionPage() {
     (max) => randomInt(max),
   );
 
-  return <Recorder topics={topics} targetSeconds={targetSeconds} />;
+  return <Recorder topics={topics} targetSeconds={targetSeconds} notice={<StandaloneNotice />} />;
 }

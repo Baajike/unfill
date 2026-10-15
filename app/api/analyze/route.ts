@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateFeedback } from "@/lib/ai/feedback";
-import { TranscriptionError, transcribe } from "@/lib/ai/transcribe";
+import { NoSpeechError, TranscriptionError, transcribe } from "@/lib/ai/transcribe";
 import {
   MIN_RECORDING_SECONDS,
   isCompleted,
@@ -26,8 +26,14 @@ export const maxDuration = 120;
 const DURATION_TOLERANCE_SECONDS = 2;
 const MAX_TRANSCRIPT_CHARS = 50_000;
 
-function fail(status: number, error: string) {
-  return NextResponse.json({ error }, { status, headers: { "Cache-Control": "no-store" } });
+function fail(status: number, error: string, code?: string) {
+  return NextResponse.json({ error, code }, { status, headers: { "Cache-Control": "no-store" } });
+}
+
+/** e.g. "phrase:1,no_speech:2" — counts only, never text. */
+function formatDropped(dropped: Record<string, number | undefined>): string {
+  const parts = Object.entries(dropped).map(([reason, n]) => `${reason}:${n}`);
+  return parts.length > 0 ? parts.join(",") : "none";
 }
 
 export async function POST(request: Request) {
@@ -89,7 +95,8 @@ export async function POST(request: Request) {
       `[analyze] audio=${mime} bytes=${bytes.length} duration=${transcript.durationSeconds.toFixed(1)}s ` +
         `words=${transcript.words?.length ?? transcript.text.split(/\s+/).filter(Boolean).length} ` +
         `lastSpeechAt=${lastSpeechAt === null ? "n/a" : `${lastSpeechAt.toFixed(1)}s`} ` +
-        `timestamps=${transcript.words ? "word" : transcript.segments ? "segment" : "none"}`,
+        `timestamps=${transcript.words ? "word" : transcript.segments ? "segment" : "none"} ` +
+        `dropped=${formatDropped(transcript.dropped)}`,
     );
 
     // Duration comes from the audio itself, so it can't be inflated by the client.
@@ -133,6 +140,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ id: saved.id }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     // Log the kind of failure only. Never transcripts, audio or keys.
+    if (error instanceof NoSpeechError) {
+      // Nothing is saved, so this doesn't use up the daily limit.
+      console.info(`[analyze] no speech detected: dropped=${formatDropped(error.dropped)}`);
+      return fail(422, "No speech detected. Check your microphone and try again.", "no_speech");
+    }
     if (error instanceof TranscriptionError) {
       console.error(`[analyze] transcription failed: status ${error.status ?? "n/a"}`);
       return fail(502, "We couldn't process that recording. Please try again.");

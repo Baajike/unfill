@@ -93,8 +93,20 @@ export const whisperResponseSchema = z.object({
   text: z.string(),
   duration: z.number().optional(),
   words: z.array(timed.extend({ word: z.string() })).nullish(),
-  segments: z.array(timed.extend({ text: z.string() })).nullish(),
+  segments: z
+    .array(
+      timed.extend({
+        text: z.string(),
+        // Whisper's per-segment confidence scores, used to drop hallucinated text.
+        no_speech_prob: z.number().optional(),
+        avg_logprob: z.number().optional(),
+        compression_ratio: z.number().optional(),
+      }),
+    )
+    .nullish(),
 });
+
+export type WhisperSegment = NonNullable<z.infer<typeof whisperResponseSchema>["segments"]>[number];
 
 export const credentialsSchema = z.object({
   email: z.email().max(254),

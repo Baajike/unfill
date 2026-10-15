@@ -1,10 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MIN_RECORDING_SECONDS } from "@/lib/levels";
+import { isEssentiallySilent, measureActivity, rmsToDbfs, rootMeanSquare } from "@/lib/metrics";
 import type { Topic } from "@/lib/types";
 import { Button, ButtonLink } from "./Button";
+import { LevelMeter } from "./LevelMeter";
 import { Timer, formatClock } from "./Timer";
 
 // Vercel rejects request bodies above 4.5 MB. Leave room for the form envelope.
@@ -15,6 +17,14 @@ const COUNTDOWN_FROM = 3;
 const MUTE_GRACE_MS = 2000;
 const DECODE_TIMEOUT_MS = 15_000;
 const WAV_SAMPLE_RATE = 16_000;
+
+// Live meter: anything above this counts as hearing you; flat for this long shows a warning.
+const METER_INTERVAL_MS = 100;
+const METER_SOUND_DBFS = -60;
+const CANT_HEAR_AFTER_MS = 3000;
+// The meter bar spans this range.
+const METER_FLOOR_DBFS = -60;
+const METER_CEILING_DBFS = -10;
 
 // Chrome records WebM/Opus; iOS Safari records MP4/AAC.
 const MIME_CANDIDATES = [
@@ -31,10 +41,22 @@ const TIER_LABEL: Record<Topic["tier"], string> = {
   opinion: "Your view",
 };
 
-type Phase = "ready" | "countdown" | "recording" | "review" | "uploading" | "error";
+const RESTART_HINT = "If this keeps happening, close Unfill completely and open it again.";
+
+type Phase =
+  | "ready"
+  | "countdown"
+  | "recording"
+  | "checking"
+  | "review"
+  | "silent"
+  | "uploading"
+  | "error";
 
 type Recording = {
   blob: Blob;
+  /** What gets uploaded: a WAV re-encode when possible, otherwise the original. */
+  upload: Blob;
   url: string;
   seconds: number;
   interrupted: boolean;
@@ -61,6 +83,21 @@ function createRecorder(stream: MediaStream, mimeType: string | undefined): Medi
   } catch {
     return new MediaRecorder(stream);
   }
+}
+
+function newAudioContext(): AudioContext | null {
+  const Ctx =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  try {
+    return Ctx ? new Ctx() : null;
+  } catch {
+    return null;
+  }
+}
+
+function dbToLevel(db: number): number {
+  return Math.min(1, Math.max(0, (db - METER_FLOOR_DBFS) / (METER_CEILING_DBFS - METER_FLOOR_DBFS)));
 }
 
 /** 16-bit PCM mono WAV. */
@@ -108,33 +145,38 @@ function toMono16k(audio: AudioBuffer): Float32Array {
   return out;
 }
 
-/**
- * Safari writes fragmented MP4, which some server-side decoders only partly read.
- * Re-encode it as plain WAV in memory when that fits the upload limit. Any failure
- * (decode error, timeout, too large) falls back to the original file.
- */
-async function prepareForUpload(blob: Blob): Promise<Blob> {
-  if (isWebm(blob.type)) return blob;
-  const Ctx =
-    window.AudioContext ??
-    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!Ctx) return blob;
-
-  let ctx: AudioContext | null = null;
+/** Decodes the finished recording in a separate AudioContext. Never touches the live mic. */
+async function decodeRecording(blob: Blob): Promise<AudioBuffer | null> {
+  const ctx = newAudioContext();
+  if (!ctx) return null;
   try {
-    ctx = new Ctx();
-    const context = ctx;
     const bytes = await blob.arrayBuffer();
-    const decoded = await Promise.race([
-      new Promise<AudioBuffer>((resolve, reject) => context.decodeAudioData(bytes, resolve, reject)),
+    return await Promise.race([
+      new Promise<AudioBuffer>((resolve, reject) => ctx.decodeAudioData(bytes, resolve, reject)),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), DECODE_TIMEOUT_MS)),
     ]);
-    if (44 + Math.ceil(decoded.duration * WAV_SAMPLE_RATE) * 2 > MAX_UPLOAD_BYTES) return blob;
-    return encodeWav(toMono16k(decoded), WAV_SAMPLE_RATE);
   } catch {
-    return blob;
+    return null;
   } finally {
-    ctx?.close().catch(() => {});
+    ctx.close().catch(() => {});
+  }
+}
+
+/**
+ * Checks the recording for sound and prepares the upload. Safari writes fragmented
+ * MP4, which some server-side decoders only partly read, so it is re-encoded as WAV
+ * when that fits. If decoding fails, `silent` is null and the original is uploaded.
+ */
+async function inspectRecording(blob: Blob): Promise<{ upload: Blob; silent: boolean | null }> {
+  const decoded = await decodeRecording(blob);
+  if (!decoded) return { upload: blob, silent: null };
+  try {
+    const mono = toMono16k(decoded);
+    const silent = isEssentiallySilent(measureActivity(mono, WAV_SAMPLE_RATE));
+    const wavFits = 44 + mono.length * 2 <= MAX_UPLOAD_BYTES;
+    return { upload: !isWebm(blob.type) && wavFits ? encodeWav(mono, WAV_SAMPLE_RATE) : blob, silent };
+  } catch {
+    return { upload: blob, silent: null };
   }
 }
 
@@ -143,7 +185,15 @@ function minutesLabel(seconds: number): string {
   return m === 1 ? "1 minute" : `${m} minutes`;
 }
 
-export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSeconds: number }) {
+export function Recorder({
+  topics,
+  targetSeconds,
+  notice,
+}: {
+  topics: Topic[];
+  targetSeconds: number;
+  notice?: ReactNode;
+}) {
   const router = useRouter();
   const [topicIndex, setTopicIndex] = useState(0);
   const [phase, setPhase] = useState<Phase>("ready");
@@ -153,6 +203,8 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
   const [canRetryUpload, setCanRetryUpload] = useState(false);
   const [recording, setRecording] = useState<Recording | null>(null);
   const [showPlayer, setShowPlayer] = useState(false);
+  const [level, setLevel] = useState<number | null>(0);
+  const [cantHear, setCantHear] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -165,6 +217,12 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
   const startedAtRef = useRef(0);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Live meter state.
+  const meterCtxRef = useRef<AudioContext | null>(null);
+  const meterTimerRef = useRef<number | null>(null);
+  const meterRanRef = useRef(false);
+  const heardRef = useRef(false);
+  const loudestDbRef = useRef(-Infinity);
 
   const topic = topics[topicIndex];
   const canSkip = topicIndex === 0 && topics.length > 1;
@@ -176,32 +234,54 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
     muteTimerRef.current = null;
   }
 
+  function stopMeter() {
+    if (meterTimerRef.current !== null) window.clearInterval(meterTimerRef.current);
+    meterTimerRef.current = null;
+    meterCtxRef.current?.close().catch(() => {});
+    meterCtxRef.current = null;
+  }
+
   function releaseDevices() {
     clearTimers();
+    stopMeter();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     wakeLockRef.current?.release().catch(() => {});
     wakeLockRef.current = null;
   }
 
+  /** Stops Listen back and fully unloads it so it lets go of the iOS audio session. */
+  function unloadPlayer() {
+    const el = audioRef.current;
+    if (!el) return;
+    el.pause();
+    el.removeAttribute("src");
+    el.load();
+  }
+
   /** Drops the in-memory recording and its playback URL. */
   function discardRecording() {
+    unloadPlayer();
     if (recordingRef.current) URL.revokeObjectURL(recordingRef.current.url);
     recordingRef.current = null;
     setRecording(null);
     setShowPlayer(false);
   }
 
-  // Free the microphone, timers, wake lock and audio if the user navigates away mid-session.
+  // Free the microphone, meter, timers, wake lock and audio if the user navigates away.
   useEffect(() => {
     const timer = timerRef;
     const muteTimer = muteTimerRef;
+    const meterTimer = meterTimerRef;
+    const meterCtx = meterCtxRef;
     const stream = streamRef;
     const wakeLock = wakeLockRef;
     const rec = recordingRef;
     return () => {
       if (timer.current !== null) window.clearInterval(timer.current);
       if (muteTimer.current !== null) window.clearTimeout(muteTimer.current);
+      if (meterTimer.current !== null) window.clearInterval(meterTimer.current);
+      meterCtx.current?.close().catch(() => {});
       stream.current?.getTracks().forEach((t) => t.stop());
       wakeLock.current?.release().catch(() => {});
       if (rec.current) URL.revokeObjectURL(rec.current.url);
@@ -215,11 +295,64 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
     setPhase("error");
   }
 
+  /**
+   * Routes the mic through an analyser into a silent output. Besides driving the
+   * meter, an active input+output graph tells iOS we are recording and playing,
+   * which keeps the microphone actually being read.
+   */
+  function startMeter(ctx: AudioContext | null, stream: MediaStream) {
+    meterRanRef.current = false;
+    if (!ctx) {
+      setLevel(null);
+      return;
+    }
+    try {
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      const silentOut = ctx.createGain();
+      silentOut.gain.value = 0;
+      source.connect(analyser);
+      analyser.connect(silentOut);
+      silentOut.connect(ctx.destination);
+      const buffer = new Float32Array(analyser.fftSize);
+
+      meterTimerRef.current = window.setInterval(() => {
+        if (ctx.state !== "running") {
+          setLevel(null);
+          return;
+        }
+        analyser.getFloatTimeDomainData(buffer);
+        const db = rmsToDbfs(rootMeanSquare(buffer));
+        setLevel(dbToLevel(db));
+
+        if (startedAtRef.current === 0) return; // still counting down
+        meterRanRef.current = true;
+        if (db > loudestDbRef.current) loudestDbRef.current = db;
+        if (db > METER_SOUND_DBFS) {
+          heardRef.current = true;
+          setCantHear(false);
+        } else if (!heardRef.current && performance.now() - startedAtRef.current >= CANT_HEAR_AFTER_MS) {
+          setCantHear(true);
+        }
+      }, METER_INTERVAL_MS);
+    } catch {
+      setLevel(null);
+    }
+  }
+
   async function begin() {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       fail("This browser can't record audio. Try Safari on iPhone or Chrome on desktop.");
       return;
     }
+    unloadPlayer();
+    // Create and resume the AudioContext inside the tap, before any await,
+    // so iOS treats it as started by the user.
+    const ctx = newAudioContext();
+    ctx?.resume().catch(() => {});
+    meterCtxRef.current = ctx;
+
     const mimeType = pickMimeType();
     mimeTypeRef.current = mimeType;
     try {
@@ -234,6 +367,13 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
       return;
     }
 
+    startedAtRef.current = 0;
+    heardRef.current = false;
+    loudestDbRef.current = -Infinity;
+    setCantHear(false);
+    setLevel(ctx ? 0 : null);
+    startMeter(ctx, streamRef.current);
+
     setCountdown(COUNTDOWN_FROM);
     setPhase("countdown");
     let n = COUNTDOWN_FROM;
@@ -242,10 +382,32 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
       if (n > 0) {
         setCountdown(n);
       } else {
-        clearTimers();
+        if (timerRef.current !== null) window.clearInterval(timerRef.current);
+        timerRef.current = null;
         startRecording();
       }
     }, 1000);
+  }
+
+  async function finishRecording(blob: Blob, seconds: number) {
+    setPhase("checking");
+    const meterRan = meterRanRef.current;
+    const loudest = loudestDbRef.current;
+    const { upload, silent } = await inspectRecording(blob);
+    // If the file couldn't be decoded, fall back to what the live meter heard.
+    const isSilent = silent ?? (meterRan && loudest <= METER_SOUND_DBFS);
+
+    const rec: Recording = {
+      blob,
+      upload,
+      url: URL.createObjectURL(blob),
+      seconds,
+      interrupted: interruptedRef.current,
+    };
+    recordingRef.current = rec;
+    setRecording(rec);
+    setShowPlayer(false);
+    setPhase(isSilent ? "silent" : "review");
   }
 
   function startRecording() {
@@ -267,17 +429,7 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
       const type = recorder.mimeType || chunksRef.current[0]?.type || "audio/mp4";
       const blob = new Blob(chunksRef.current, { type });
       chunksRef.current = [];
-      // Always keep what was captured so it can be checked and, if long enough, analysed.
-      const rec: Recording = {
-        blob,
-        url: URL.createObjectURL(blob),
-        seconds,
-        interrupted: interruptedRef.current,
-      };
-      recordingRef.current = rec;
-      setRecording(rec);
-      setShowPlayer(false);
-      setPhase("review");
+      void finishRecording(blob, seconds);
     };
 
     // iOS can silence (mute) or end the mic track mid-recording, e.g. on an audio
@@ -286,7 +438,8 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
       interruptedRef.current = true;
       stop();
     };
-    stream.getAudioTracks().forEach((track) => {
+    const tracks = stream.getAudioTracks();
+    tracks.forEach((track) => {
       track.onended = interrupt;
       track.onmute = () => {
         if (muteTimerRef.current === null) {
@@ -298,6 +451,10 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
         muteTimerRef.current = null;
       };
     });
+    // A track that is already muted or dead won't deliver audio: warn straight away.
+    if (tracks.length === 0 || tracks.some((t) => t.readyState !== "live" || t.muted)) {
+      setCantHear(true);
+    }
 
     recorder.start();
     startedAtRef.current = performance.now();
@@ -336,14 +493,17 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
     setPhase("uploading");
     setError(null);
 
-    const audio = await prepareForUpload(rec.blob);
     const form = new FormData();
-    form.append("audio", audio, "recording");
+    form.append("audio", rec.upload, "recording");
     form.append("topicId", topic.id);
 
     try {
       const res = await fetch("/api/analyze", { method: "POST", body: form });
-      const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        id?: string;
+        error?: string;
+        code?: string;
+      };
       if (res.ok && data.id) {
         discardRecording();
         router.replace(`/results/${data.id}`);
@@ -351,6 +511,11 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
       }
       if (res.status === 401) {
         router.replace("/login");
+        return;
+      }
+      if (data.code === "no_speech") {
+        setShowPlayer(false);
+        setPhase("silent");
         return;
       }
       const retryable = res.status >= 500 || res.status === 408;
@@ -364,8 +529,27 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
     discardRecording();
     setError(null);
     setElapsed(0);
+    setCantHear(false);
     setPhase("ready");
   }
+
+  const player = recording ? (
+    <>
+      {/* Plays from browser memory only; nothing is uploaded until you tap Analyse. */}
+      <audio
+        ref={audioRef}
+        src={recording.url}
+        controls
+        preload="metadata"
+        className={showPlayer ? "w-full" : "hidden"}
+      />
+      {!showPlayer ? (
+        <Button variant="secondary" size="lg" onClick={listenBack}>
+          Listen back
+        </Button>
+      ) : null}
+    </>
+  ) : null;
 
   if (phase === "ready") {
     return (
@@ -380,6 +564,7 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
           <h1 className="mt-3 text-4xl leading-tight font-semibold tracking-tight">{topic.text}</h1>
           <p className="mt-4 text-muted">Speak for {minutesLabel(targetSeconds)}. Take your time.</p>
         </div>
+        {notice ? <div className="mb-4">{notice}</div> : null}
         <div className="flex flex-col gap-3">
           <Button size="xl" onClick={begin}>
             Start
@@ -403,6 +588,9 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
         <p key={countdown} className="mt-10 text-9xl font-light tabular-nums animate-rise" aria-live="assertive">
           {countdown}
         </p>
+        <div className="mt-10 w-40">
+          <LevelMeter level={level} />
+        </div>
       </div>
     );
   }
@@ -417,8 +605,14 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
           Recording
         </div>
         <p className="mt-4 text-2xl leading-snug font-medium">{topic.text}</p>
-        <div className="flex flex-1 items-center">
+        <div className="flex flex-1 flex-col justify-center gap-8">
           <Timer remaining={remaining} total={targetSeconds} />
+          <div className="flex flex-col gap-3">
+            <LevelMeter level={level} />
+            <p className="min-h-12 text-center text-sm leading-relaxed text-ink" role="alert">
+              {cantHear ? `We can't hear you. Check your microphone. ${RESTART_HINT}` : ""}
+            </p>
+          </div>
         </div>
         <Button size="xl" variant="secondary" onClick={stop} disabled={!canStop}>
           Stop
@@ -430,9 +624,42 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
     );
   }
 
+  if (phase === "checking") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center text-center" aria-live="polite">
+        <span className="h-12 w-12 rounded-full bg-accent-soft animate-breathe" aria-hidden />
+        <p className="mt-6 text-lg text-muted">Checking your recording</p>
+      </div>
+    );
+  }
+
+  if (phase === "silent" && recording) {
+    return (
+      <div className="flex flex-1 flex-col animate-rise">
+        <p className="text-sm text-muted">{formatClock(recording.seconds)} recorded</p>
+        <div className="flex flex-1 flex-col justify-center gap-4 py-8" role="alert">
+          <h1 className="text-3xl leading-tight font-semibold tracking-tight">No speech was recorded</h1>
+          <p className="leading-relaxed text-muted">
+            The microphone didn&apos;t pick up your voice, so this wasn&apos;t analysed and doesn&apos;t
+            count toward today&apos;s limit. Check your microphone and try again. {RESTART_HINT}
+          </p>
+          {player}
+        </div>
+        <div className="flex flex-col gap-3">
+          <Button size="xl" onClick={startOver}>
+            Record again
+          </Button>
+          <ButtonLink href="/" variant="ghost" size="md">
+            Home
+          </ButtonLink>
+        </div>
+      </div>
+    );
+  }
+
   if (phase === "review" && recording) {
     const longEnough = recording.seconds >= MIN_RECORDING_SECONDS - 0.5;
-    const fits = recording.blob.size <= MAX_UPLOAD_BYTES;
+    const fits = recording.upload.size <= MAX_UPLOAD_BYTES;
     const canAnalyse = longEnough && fits;
     return (
       <div className="flex flex-1 flex-col animate-rise">
@@ -455,20 +682,7 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
           {!fits ? (
             <p className="text-muted">This recording is too large to upload. Please try a shorter session.</p>
           ) : null}
-
-          {/* Plays from browser memory only; nothing is uploaded until you tap Analyse. */}
-          <audio
-            ref={audioRef}
-            src={recording.url}
-            controls
-            preload="metadata"
-            className={showPlayer ? "w-full" : "hidden"}
-          />
-          {!showPlayer ? (
-            <Button variant="secondary" size="lg" onClick={listenBack}>
-              Listen back
-            </Button>
-          ) : null}
+          {player}
         </div>
 
         <div className="flex flex-col gap-3">
@@ -508,7 +722,7 @@ export function Recorder({ topics, targetSeconds }: { topics: Topic[]; targetSec
           </Button>
         ) : null}
         <Button size="lg" variant={canRetryUpload ? "secondary" : "primary"} onClick={startOver}>
-          Start over
+          Record again
         </Button>
         <ButtonLink href="/" variant="ghost" size="md">
           Home
